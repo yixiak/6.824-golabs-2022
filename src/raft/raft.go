@@ -82,7 +82,7 @@ type Raft struct {
 	votedFor    int
 	logs        []*logEntry
 	commitIndex int
-	lastApplied int
+	lastApplied int // Index of the last applied logEntry, start from 1
 	nextIndex   []int
 	matchIndex  []int
 
@@ -319,11 +319,10 @@ func (rf *Raft) StartElection() {
 	logLen := len(rf.logs)
 	agreeNum := 1 // itself
 	// maybe there is no entry in log
-	lastLogIndex := 0
+	lastLogIndex := rf.lastApplied
 	lastLogTerm := 0
 	if logLen > 0 {
-		lastLogTerm = rf.logs[rf.lastApplied].Term
-		lastLogIndex = rf.logs[rf.lastApplied].Index
+		lastLogTerm = rf.logs[rf.lastApplied-1].Term
 	}
 	args := &RequestVoteArgs{
 		term:         rf.currentTerm,
