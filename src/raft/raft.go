@@ -173,6 +173,20 @@ type RequestVoteReply struct {
 	VOTEGRANTED bool
 }
 
+type AppendEntriesArgs struct {
+	TERM         int
+	LEADERID     int
+	PREVLOGINDEX int
+	PREVLOGTERM  int
+	ENTRIES      []*logEntry
+	LEADERCOMMIT int
+}
+
+type AppendEntriesReply struct {
+	TERM    int
+	SUCCESS bool
+}
+
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
@@ -210,15 +224,19 @@ func (rf *Raft) isLogUptoDate(lastLogIndex int, lastLogTerm int) bool {
 	if rf.lastApplied == 0 {
 		return true
 	} else {
-		if rf.logs[rf.lastApplied].Term > lastLogTerm || rf.lastApplied > lastLogIndex {
+		if rf.logs[rf.lastApplied-1].Term > lastLogTerm || rf.lastApplied > lastLogIndex {
 			return false
 		}
 	}
 	return true
 }
 
-func (rf *Raft) AppendEntries(args *RequestVoteArgs, reply *RequestVoteReply) {
-
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	if len(args.ENTRIES) == 0 {
+		// receive a heartbeat
+		DPrintf("[Server %v] receive a heartbeat from %v", rf.me, args.LEADERID)
+		rf.election_timeout.Reset(RandElectionTimeout())
+	}
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -253,7 +271,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-func (rf *Raft) sendAppendEntries(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
@@ -339,7 +357,19 @@ func (rf *Raft) ticker() {
 }
 
 func (rf *Raft) SendheartbeatToAll() {
-
+	args := &AppendEntriesArgs{
+		TERM:     rf.currentTerm,
+		LEADERID: rf.me,
+		ENTRIES:  make([]*logEntry, 0),
+	}
+	if rf.state == Leader {
+		for server := range rf.peers {
+			reply := &AppendEntriesReply{}
+			go func(peer int) {
+				rf.sendAppendEntries(peer, args, reply)
+			}(server)
+		}
+	}
 }
 
 func (rf *Raft) StartElection() {
@@ -367,8 +397,8 @@ func (rf *Raft) StartElection() {
 				// receive the reply
 				if rf.sendRequestVote(peer, args, reply) {
 					if rf.currentTerm == args.TERM && rf.state == Candidate {
-						rf.mu.Lock()
-						defer rf.mu.Unlock()
+						//rf.mu.Lock()
+						//defer rf.mu.Unlock()
 						DPrintf("[Server %v] Receive reply from %v", rf.me, peer)
 						if reply.VOTEGRANTED {
 							// get a vote
@@ -377,12 +407,16 @@ func (rf *Raft) StartElection() {
 							// win this election and then send heartbeat, interrupt sending election message
 							if agreeNum >= (len(rf.peers)+1)/2 {
 								DPrintf("[Server %v] become a new leader", rf.me)
+								rf.mu.Lock()
+								defer rf.mu.Unlock()
 								rf.state = Leader
 								rf.SendheartbeatToAll()
 							}
 						} else if reply.TERM > rf.currentTerm {
 							// find another Candidate/leader
 							DPrintf("[Server %v] find a larger term from %v", rf.me, peer)
+							//rf.mu.Lock()
+							//defer rf.mu.Unlock()
 							rf.currentTerm = reply.TERM
 							// go back to Follower and interrupt sending message
 							rf.state = Follower
