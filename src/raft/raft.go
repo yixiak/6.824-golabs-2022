@@ -170,7 +170,6 @@ type RequestVoteReply struct {
 	// Your data here (2A).
 	term        int
 	voteGranted bool
-	isFollower  bool
 }
 
 // example RequestVote RPC handler.
@@ -179,7 +178,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	reply.term = rf.currentTerm
 	// Default not to vote
 	reply.voteGranted = false
-	reply.isFollower = true
 	if rf.state == Follower {
 		if rf.currentTerm <= args.term && rf.logs[rf.lastApplied].Index <= args.lastLogIndex && rf.logs[rf.lastApplied].Term <= args.lastLogTerm {
 			reply.voteGranted = true
