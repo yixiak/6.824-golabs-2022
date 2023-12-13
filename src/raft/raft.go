@@ -18,6 +18,7 @@ package raft
 //
 
 import (
+	"fmt"
 	//	"bytes"
 	"math/rand"
 	"sync"
@@ -158,35 +159,62 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
-	term         int
-	candidateID  int
-	lastLogIndex int
-	lastLogTerm  int
+	TERM         int
+	CANDIDATEID  int
+	LASTLOGINDEX int
+	LASTLOGTERM  int
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (2A).
-	term        int
-	voteGranted bool
+	TERM        int
+	VOTEGRANTED bool
 }
 
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	reply.term = rf.currentTerm
+	DPrintf("[Server %v] receive a RequestVote from %v", rf.me, args.CANDIDATEID)
+	reply.TERM = rf.currentTerm
 	// Default not to vote
-	reply.voteGranted = false
-	if rf.state == Follower {
-		if rf.currentTerm <= args.term && rf.logs[rf.lastApplied].Index <= args.lastLogIndex && rf.logs[rf.lastApplied].Term <= args.lastLogTerm {
-			reply.voteGranted = true
-		}
-	} else if rf.state == Candidate {
-
-	} else {
-
+	reply.VOTEGRANTED = false
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.currentTerm > args.TERM || (rf.currentTerm == args.TERM && rf.votedFor != -1 && rf.votedFor != args.CANDIDATEID) {
+		// has voted to another Candidate
+		DPrintf("[Server %v] DO NOT vote to %v", rf.me, args.CANDIDATEID)
+		return
 	}
+	if rf.currentTerm <= args.TERM {
+		if rf.currentTerm == args.TERM {
+			if !rf.isLogUptoDate(args.LASTLOGINDEX, args.LASTLOGTERM) {
+				return
+			}
+		}
+		DPrintf("[Server %v] vote to %v", rf.me, args.CANDIDATEID)
+		reply.VOTEGRANTED = true
+		rf.votedFor = args.CANDIDATEID
+		rf.currentTerm = args.TERM
+		if rf.state == Candidate || rf.state == Leader {
+			// go back to Follower
+			reply.VOTEGRANTED = true
+			rf.state = Follower
+		}
+	}
+
+}
+
+func (rf *Raft) isLogUptoDate(lastLogIndex int, lastLogTerm int) bool {
+	if rf.lastApplied == 0 {
+		return true
+	} else {
+		if rf.logs[rf.lastApplied].Term > lastLogTerm || rf.lastApplied > lastLogIndex {
+			return false
+		}
+	}
+	return true
 }
 
 func (rf *Raft) AppendEntries(args *RequestVoteArgs, reply *RequestVoteReply) {
@@ -272,8 +300,9 @@ func (rf *Raft) killed() bool {
 }
 
 func RandElectionTimeout() time.Duration {
-	source := rand.NewSource(time.Now().Unix())
+	source := rand.NewSource(time.Now().UnixMicro())
 	ran := rand.New(source)
+	DPrintf("A new randElectionTimeout: %v", time.Duration(150+ran.Int()%150)*time.Millisecond)
 	return time.Duration(150+ran.Int()%150) * time.Millisecond
 }
 
@@ -321,14 +350,15 @@ func (rf *Raft) StartElection() {
 	// maybe there is no entry in log
 	lastLogIndex := rf.lastApplied
 	lastLogTerm := 0
-	if logLen > 0 {
+	if logLen > 0 && rf.lastApplied < logLen && rf.lastApplied > 0 {
+		fmt.Printf("loglen is %v\n", logLen)
 		lastLogTerm = rf.logs[rf.lastApplied-1].Term
 	}
 	args := &RequestVoteArgs{
-		term:         rf.currentTerm,
-		candidateID:  rf.me,
-		lastLogTerm:  lastLogTerm,
-		lastLogIndex: lastLogIndex,
+		TERM:         rf.currentTerm,
+		CANDIDATEID:  rf.me,
+		LASTLOGTERM:  lastLogTerm,
+		LASTLOGINDEX: lastLogIndex,
 	}
 	for server := range rf.peers {
 		go func(peer int) {
@@ -336,23 +366,24 @@ func (rf *Raft) StartElection() {
 				reply := new(RequestVoteReply)
 				// receive the reply
 				if rf.sendRequestVote(peer, args, reply) {
-					if rf.currentTerm == args.term && rf.state == Candidate {
+					if rf.currentTerm == args.TERM && rf.state == Candidate {
 						rf.mu.Lock()
 						defer rf.mu.Unlock()
 						DPrintf("[Server %v] Receive reply from %v", rf.me, peer)
-						if reply.voteGranted {
+						if reply.VOTEGRANTED {
 							// get a vote
 							DPrintf("[Server %v] get a vote from %v", rf.me, peer)
 							agreeNum++
 							// win this election and then send heartbeat, interrupt sending election message
 							if agreeNum >= (len(rf.peers)+1)/2 {
+								DPrintf("[Server %v] become a new leader", rf.me)
 								rf.state = Leader
 								rf.SendheartbeatToAll()
 							}
-						} else if reply.term > rf.currentTerm {
+						} else if reply.TERM > rf.currentTerm {
 							// find another Candidate/leader
 							DPrintf("[Server %v] find a larger term from %v", rf.me, peer)
-							rf.currentTerm = reply.term
+							rf.currentTerm = reply.TERM
 							// go back to Follower and interrupt sending message
 							rf.state = Follower
 							rf.votedFor = -1
