@@ -378,11 +378,11 @@ func (rf *Raft) StartElection() {
 	logLen := len(rf.logs)
 	agreeNum := 1 // itself
 	// maybe there is no entry in log
-	lastLogIndex := rf.lastApplied
+	lastLogIndex := logLen - 1
 	lastLogTerm := 0
-	if logLen > 0 && rf.lastApplied < logLen && rf.lastApplied > 0 {
+	if logLen > 1 {
 		fmt.Printf("loglen is %v\n", logLen)
-		lastLogTerm = rf.logs[rf.lastApplied-1].Term
+		lastLogTerm = rf.logs[logLen-1].Term
 	}
 	args := &RequestVoteArgs{
 		TERM:         rf.currentTerm,
@@ -410,10 +410,7 @@ func (rf *Raft) StartElection() {
 							// win this election and then send heartbeat, interrupt sending election message
 							if agreeNum >= (len(rf.peers)+1)/2 {
 								DPrintf("[Server %v] become a new leader", rf.me)
-								rf.mu.Lock()
-								rf.state = Leader
-								rf.mu.Unlock()
-								rf.SendheartbeatToAll()
+								rf.TobeLeader()
 							}
 						} else if reply.TERM > rf.currentTerm {
 							// find another Candidate/leader
@@ -430,7 +427,19 @@ func (rf *Raft) StartElection() {
 			}
 		}(server)
 	}
+}
 
+func (rf *Raft) TobeLeader() {
+	rf.mu.Lock()
+
+	rf.state = Leader
+	lastIndex := len(rf.logs) - 1
+	for peer := range rf.nextIndex {
+		rf.nextIndex[peer] = lastIndex
+		rf.matchIndex[peer] = 0
+	}
+	rf.mu.Unlock()
+	rf.SendheartbeatToAll()
 }
 
 // the service or tester wants to create a Raft server. the ports
@@ -456,9 +465,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		votedFor:          -1,
 		commitIndex:       0,
 		lastApplied:       0,
-		nextIndex:         make([]int, 0),
-		matchIndex:        make([]int, 0),
-		logs:              make([]*logEntry, 0),
+		nextIndex:         make([]int, len(peers)),
+		matchIndex:        make([]int, len(peers)),
+		logs:              make([]*logEntry, 1),
 	}
 	// Your initialization code here (2A, 2B, 2C).
 
