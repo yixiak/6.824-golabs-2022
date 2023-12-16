@@ -390,6 +390,7 @@ func (rf *Raft) StartElection() {
 		LASTLOGTERM:  lastLogTerm,
 		LASTLOGINDEX: lastLogIndex,
 	}
+	agreeNumLock := sync.Mutex{}
 	for server := range rf.peers {
 		go func(peer int) {
 			if peer != rf.me {
@@ -403,13 +404,15 @@ func (rf *Raft) StartElection() {
 						if reply.VOTEGRANTED {
 							// get a vote
 							DPrintf("[Server %v] get a vote from %v", rf.me, peer)
+							agreeNumLock.Lock()
 							agreeNum++
+							agreeNumLock.Unlock()
 							// win this election and then send heartbeat, interrupt sending election message
 							if agreeNum >= (len(rf.peers)+1)/2 {
 								DPrintf("[Server %v] become a new leader", rf.me)
 								rf.mu.Lock()
-								defer rf.mu.Unlock()
 								rf.state = Leader
+								rf.mu.Unlock()
 								rf.SendheartbeatToAll()
 							}
 						} else if reply.TERM > rf.currentTerm {
