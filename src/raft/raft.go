@@ -250,12 +250,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			} else {
 				rf.commitIndex = args.LEADERCOMMIT
 			}
-			apply := ApplyMsg{
-				Command:      rf.logs[rf.commitIndex].Command,
-				CommandIndex: rf.commitIndex,
-				CommandValid: true,
-			}
-			rf.applyMsg <- apply
+			rf.apply()
 			DPrintf("[Server %v] update its commitIndex to %v ", rf.me, rf.commitIndex)
 		}
 		return
@@ -280,6 +275,22 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	//}
 	DPrintf("[Server %v]'s log is %+v now", rf.me, rf.logs[1])
 	reply.SUCCESS = true
+}
+
+// apply the entry when commitIndex > LastApply
+func (rf *Raft) apply() {
+
+	for rf.commitIndex > rf.lastApplied && rf.lastApplied-1 < len(rf.logs) {
+		rf.lastApplied++
+		DPrintf("[Server %v] is applying %v: %+v", rf.me, rf.lastApplied, rf.logs[rf.lastApplied])
+		applymsg := ApplyMsg{
+			Command:      rf.logs[rf.lastApplied].Command,
+			CommandIndex: rf.lastApplied,
+			CommandValid: true,
+		}
+		rf.applyMsg <- applymsg
+	}
+
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -398,20 +409,12 @@ func (rf *Raft) SendNewCommandToAll() {
 					commitNum++
 					if rf.commitIndex == oldCommit && commitNum >= (len(rf.peers)+1)/2 {
 						rf.commitIndex++
-						DPrintf("[Server %v] commit a new command with commitId %v", rf.me, rf.commitIndex)
-						if rf.commitIndex > rf.lastApplied {
-							rf.lastApplied = rf.commitIndex
-							rf.SendheartbeatToAll()
-							rf.heartbeat_timeout.Reset(20 * time.Millisecond)
-						}
+						DPrintf("[Server %v] commit a new command with commitId %v: %+v", rf.me, rf.commitIndex, rf.logs[rf.commitIndex])
+						rf.apply()
+						rf.SendheartbeatToAll()
 					}
 					commitNumLock.Unlock()
-					apply := ApplyMsg{
-						CommandIndex: rf.commitIndex,
-						CommandValid: true,
-						Command:      rf.logs[rf.commitIndex].Command,
-					}
-					rf.applyMsg <- apply
+
 				} else {
 					rf.nextIndex[peer]--
 					// and then try again
@@ -573,7 +576,7 @@ func (rf *Raft) TobeLeader() {
 		rf.matchIndex[peer] = 0
 	}
 
-	//rf.SendheartbeatToAll()
+	rf.SendheartbeatToAll()
 	rf.heartbeat_timeout.Reset(20 * time.Millisecond)
 }
 
