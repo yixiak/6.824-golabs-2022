@@ -219,13 +219,22 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 }
 
+// if the request log is more up-to-date than this client
 func (rf *Raft) isLogUptoDate(lastLogIndex int, lastLogTerm int) bool {
 	if rf.lastApplied == 0 {
 		return true
 	} else {
-		DPrintf("[Server %v] checking isn't logUptoDate: lastLogIndex is %v, lastLogTerm is %v, rf.lastApplied is %v, its term is %v", rf.me, lastLogIndex, lastLogTerm, rf.lastApplied, rf.logs[rf.lastApplied-1].Term)
-		if rf.logs[rf.lastApplied-1].Term > lastLogTerm || rf.lastApplied > lastLogIndex {
+		DPrintf("[Server %v] checking isn't logUptoDate: lastLogIndex is %v, lastLogTerm is %v", rf.me, lastLogIndex, lastLogTerm)
+		//if rf.logs[rf.lastApplied].Term > lastLogTerm || rf.lastApplied > lastLogIndex {
+		//	return false
+		//}
+		if rf.logs[len(rf.logs)-1].Term > lastLogTerm {
 			return false
+		}
+		if rf.logs[len(rf.logs)-1].Term == lastLogTerm {
+			if len(rf.logs)-1 > lastLogIndex {
+				return false
+			}
 		}
 	}
 	return true
