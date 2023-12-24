@@ -258,8 +258,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if prevLogIndex >= len(rf.logs) {
 		return
 	}
-	if args.PREVLOGINDEX >= 0 && rf.logs[args.PREVLOGINDEX].Term > args.PREVLOGTERM {
-		DPrintf("[Server %v] Leader's term is behind", rf.me)
+	if args.PREVLOGINDEX >= 0 && rf.logs[args.PREVLOGINDEX].Term != args.PREVLOGTERM {
+		DPrintf("[Server %v] Leader's term is different", rf.me)
 		return
 	}
 	if len(args.ENTRIES) == 0 {
@@ -451,6 +451,8 @@ func (rf *Raft) SendNewCommandToAll() {
 					DPrintf("[Server %v] update %v nextIndex to %v", rf.me, peer, rf.nextIndex[peer])
 					rf.mu.Unlock()
 				}
+			} else {
+				DPrintf("[Server %v] lost the connection with %v", rf.me, peer)
 			}
 		}(server)
 	}
