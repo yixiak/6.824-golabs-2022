@@ -365,7 +365,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// Your code here (2B).
 	isLeader = rf.state == Leader
 	if isLeader {
-		DPrintf("[Server %v] receive a command {%v}", rf.me, command)
+		DPrintf("[Server %v] receive a command {%v}, commitIndex is %v", rf.me, command, rf.commitIndex)
 		rf.mu.Lock()
 		term = rf.currentTerm
 		index = len(rf.logs) // index begin from 1
@@ -386,7 +386,6 @@ func (rf *Raft) SendNewCommandToAll() {
 	commitNum := 1
 	commitNumLock := sync.Mutex{}
 	oldCommit := rf.commitIndex
-	DPrintf("[Server %v] oldCommit is %v", rf.me, oldCommit)
 	for server := range rf.peers {
 		if server == rf.me {
 			continue
@@ -537,17 +536,23 @@ func (rf *Raft) SendheartbeatToAll() {
 							rf.nextIndex[peer] = rf.matchIndex[peer] + 1
 							DPrintf("[Server %v] update %v nextIndex and matchIndex to %v %v", rf.me, peer, rf.nextIndex[peer], rf.matchIndex[peer])
 							// update the commit index
-							// 我觉得还值得改进，因为没有保证超过一半同意
-							matchMin := len(rf.logs)
+
+							toCommit := make([]int, len(rf.logs))
 							for index := range rf.peers {
-								if rf.matchIndex[index] < matchMin && rf.matchIndex[index] > rf.commitIndex {
-									matchMin = rf.matchIndex[index]
-								}
+								com := rf.matchIndex[index]
+								toCommit[com]++
 							}
-							if rf.commitIndex < matchMin && matchMin < len(rf.logs) {
-								rf.commitIndex = matchMin
-								DPrintf("[Server %v] change its commitIndex into %v", rf.me, rf.commitIndex)
-								rf.apply()
+							peerLen := len(rf.peers)
+							// find the largest index which can be committed (at least larger than old commitIndex)
+							sum := 0
+							for i := len(toCommit) - 1; i > rf.commitIndex; i-- {
+								sum += toCommit[i]
+								if sum >= (1+peerLen)/2 {
+									rf.commitIndex = i
+									rf.apply()
+									DPrintf("[Server %v] commitIndex is %v", rf.me, rf.commitIndex)
+									break
+								}
 							}
 
 						} else {
